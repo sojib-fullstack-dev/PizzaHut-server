@@ -70,7 +70,12 @@ app.patch('/menus/:id', async (req, res) => {
   console.log('menu update', result)
 })
 
-
+// MENU DELETE API
+app.delete('/menus/:id', async (req, res) => {
+  const result = await menus.deleteOne({ _id: new ObjectId(req.params.id) })
+  res.send(result)
+  console.log('menu delete', result)
+})
 
 
 
