@@ -59,6 +59,17 @@ app.get('/menus/:id', async (req, res) => {
   res.send(result)
 })
 
+// MENU UPDATE API (edit er jonno)
+app.patch('/menus/:id', async (req, res) => {
+  const updateData = req.body
+  const result = await menus.updateOne(
+    { _id: new ObjectId(req.params.id) },
+    { $set: updateData }
+  )
+  res.send(result)
+  console.log('menu update', result)
+})
+
 
 
 
