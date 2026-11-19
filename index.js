@@ -18,6 +18,9 @@ export async function connectToMongoDB() {
 }
 
 const connectedClient=await connectToMongoDB()
+const database = connectedClient.db("PizzaHub-DataBase");
+const dbUsers =database.collection('user')
+const menus=database.collection('menu')
 
 
 
@@ -28,7 +31,21 @@ app.use(express.json())
 
 
 
+// db user load
+app.get('/users', async (req, res) => {
+  const result = await dbUsers.find().toArray()
+  res.send(result)
+  // console.log(result)
+})
 
+// MENU POST API 
+
+app.post('/menus', async (req,res)=>{
+      const menuItems=req.body;
+        const result=await menus.insertOne(menuItems);
+        res.send(result)
+        console.log('menu post',result)
+})
 
 
 
