@@ -1,7 +1,7 @@
 
 import express from 'express';
 import 'dotenv/config'
-import { MongoClient } from 'mongodb';
+import { MongoClient, ObjectId } from 'mongodb';
 import cors from 'cors'
 
 
@@ -45,6 +45,18 @@ app.post('/menus', async (req,res)=>{
         const result=await menus.insertOne(menuItems);
         res.send(result)
         console.log('menu post',result)
+})
+
+app.get('/menus', async (req, res) => {
+  const result = await menus.find().toArray()
+  res.send(result)
+  // console.log(result)
+})
+
+// MENU DETAILS API (single item - view er jonno)
+app.get('/menus/:id', async (req, res) => {
+  const result = await menus.findOne({ _id: new ObjectId(req.params.id) })
+  res.send(result)
 })
 
 
