@@ -47,19 +47,42 @@ app.post('/menus', async (req,res)=>{
         console.log('menu post',result)
 })
 
+  //  GET MENU API 
 app.get('/menus', async (req, res) => {
-  const result = await menus.find().toArray()
-  res.send(result)
-  // console.log(result)
-})
+  const query = {};
 
-// MENU DETAILS API (single item - view er jonno)
+  console.log('queryString', req.query);
+
+  if (req.query.category) {
+    query.category = req.query.category;
+  }
+
+  if (req.query.location) {
+    query.location = { $regex: req.query.location, $options: 'i' };
+  }
+
+  if (req.query.search) {
+    query.$or = [
+      { name: { $regex: req.query.search, $options: 'i' } },
+      { description: { $regex: req.query.search, $options: 'i' } },
+      { category: { $regex: req.query.search, $options: 'i' } },
+      { location: { $regex: req.query.search, $options: 'i' } }
+    ];
+  }
+
+  const result = await menus.find(query).toArray();
+  res.send(result);
+});
+
+
+
+// MENU DETAILS API 
 app.get('/menus/:id', async (req, res) => {
   const result = await menus.findOne({ _id: new ObjectId(req.params.id) })
   res.send(result)
 })
 
-// MENU UPDATE API (edit er jonno)
+// MENU UPDATE API 
 app.patch('/menus/:id', async (req, res) => {
   const updateData = req.body
   const result = await menus.updateOne(
