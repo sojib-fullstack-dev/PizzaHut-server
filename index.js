@@ -56,6 +56,14 @@ app.get('/menus', async (req, res) => {
     query.status = req.query.status;
   }
 
+    if (req.query.vendorEmail) {
+    query.vendorEmail = req.query.vendorEmail;
+  }
+  if (req.query.vendorId) {
+    query.vendorId = req.query.vendorId;
+  }
+  
+
   if (req.query.location) {
     query.location = { $regex: req.query.location, $options: 'i' };
   }
