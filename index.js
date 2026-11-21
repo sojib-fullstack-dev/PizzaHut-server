@@ -233,6 +233,37 @@ app.get('/orders', async (req, res) => {
   res.send(result);
 });
 
+// USER BLOCK / UNBLOCK API (Admin)
+app.patch('/users/:id/block', async (req, res) => {
+  if (!ObjectId.isValid(req.params.id)) {
+    return res.status(400).send({ error: 'Invalid user id.' });
+  }
+
+  const { isBlocked } = req.body;
+  if (typeof isBlocked !== 'boolean') {
+    return res.status(400).send({ error: 'isBlocked must be a boolean.' });
+  }
+
+  const targetUser = await dbUsers.findOne({ _id: new ObjectId(req.params.id) });
+  if (!targetUser) {
+    return res.status(404).send({ error: 'User not found.' });
+  }
+
+  if (targetUser.role === 'admin') {
+    return res.status(403).send({ error: 'Admin account cannot be blocked.' });
+  }
+
+  const result = await dbUsers.updateOne(
+    { _id: new ObjectId(req.params.id) },
+    { $set: { isBlocked, updatedAt: new Date().toISOString() } }
+  );
+
+  res.send(result);
+});
+
+
+
+
 // Start
 app.get('/', (req, res) => {
   res.send('Pizza Hut Api!');
