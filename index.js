@@ -103,8 +103,66 @@ app.delete('/menus/:id', async (req, res) => {
 // orders related apis
 app.post('/orders', async (req, res) => {
   const order = req.body;
+
+
+  order.status = 'Pending';
+
+
+  order.createdAt = new Date().toISOString();
+
+
+  let menu = null;
+  if (order.itemId && ObjectId.isValid(order.itemId)) {
+    menu = await menus.findOne({ _id: new ObjectId(order.itemId) });
+  }
+
+  const isOwnItem =
+    menu &&
+    ((menu.vendorId && menu.vendorId === order.customerId) ||
+      (menu.vendorEmail && menu.vendorEmail === order.customerEmail));
+
+  if (isOwnItem) {
+    return res
+      .status(400)
+      .send({ error: 'You cannot order your own menu item.' });
+  }
+
+
+  if (order.deliveryDate && order.customerId) {
+    const duplicate = await orders.findOne({
+      itemId: order.itemId,
+      customerId: order.customerId,
+      deliveryDate: order.deliveryDate,
+      status: { $in: ['Pending', 'Accepted'] },
+    });
+
+    if (duplicate) {
+      return res.status(400).send({
+        error:
+          'You already have an active order for this item on the same delivery date.',
+      });
+    }
+  }
+
   const result = await orders.insertOne(order);
   res.send(result);
+});
+
+// order status update (Pending / Accepted / Rejected / Cancelled)
+app.patch('/orders/:id', async (req, res) => {
+  const { status } = req.body;
+  const allowedStatuses = ['Pending', 'Accepted', 'Rejected', 'Cancelled'];
+
+  if (!allowedStatuses.includes(status)) {
+    return res.status(400).send({ error: 'Invalid status.' });
+  }
+
+  const result = await orders.updateOne(
+    { _id: new ObjectId(req.params.id) },
+    { $set: { status } }
+  );
+  res.send(result);
+  console.log('order status update', result);
 });
 
 //  get orders
