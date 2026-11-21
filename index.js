@@ -21,7 +21,7 @@ const connectedClient=await connectToMongoDB()
 const database = connectedClient.db("PizzaHub-DataBase");
 const dbUsers =database.collection('user')
 const menus=database.collection('menu')
-
+const orders = database.collection('orders');
 
 
 const app = express()
@@ -100,6 +100,12 @@ app.delete('/menus/:id', async (req, res) => {
   console.log('menu delete', result)
 })
 
+// orders related apis
+app.post('/orders', async (req, res) => {
+  const order = req.body;
+  const result = await orders.insertOne(order);
+  res.send(result);
+});
 
 
 
