@@ -42,6 +42,10 @@ app.get('/users', async (req, res) => {
 
 app.post('/menus', async (req,res)=>{
       const menuItems=req.body;
+
+
+      menuItems.status = 'Pending';
+
         const result=await menus.insertOne(menuItems);
         res.send(result)
         console.log('menu post',result)
@@ -55,6 +59,11 @@ app.get('/menus', async (req, res) => {
 
   if (req.query.category) {
     query.category = req.query.category;
+  }
+
+  // status diye filter 
+  if (req.query.status) {
+    query.status = req.query.status;
   }
 
   if (req.query.location) {
@@ -76,15 +85,31 @@ app.get('/menus', async (req, res) => {
 
 
 
-// MENU DETAILS API 
+
+
+
+
+app.get('/menus/featured', async (req, res) => {
+  const result = await menus.find({ status: 'Active' }).limit(6).toArray();
+  res.send(result);
+});
+
+// MENU DETAILS API
 app.get('/menus/:id', async (req, res) => {
   const result = await menus.findOne({ _id: new ObjectId(req.params.id) })
   res.send(result)
 })
 
-// MENU UPDATE API 
+// MENU UPDATE API
 app.patch('/menus/:id', async (req, res) => {
   const updateData = req.body
+
+  // Jodi status pathano hoy - valid status check (bhul status reject hobe)
+  const allowedStatuses = ['Pending', 'Approved', 'Rejected', 'Active', 'Inactive'];
+  if (updateData.status && !allowedStatuses.includes(updateData.status)) {
+    return res.status(400).send({ error: 'Invalid status.' });
+  }
+
   const result = await menus.updateOne(
     { _id: new ObjectId(req.params.id) },
     { $set: updateData }
