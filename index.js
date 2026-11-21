@@ -2,6 +2,9 @@ import express from 'express';
 import 'dotenv/config';
 import { MongoClient, ObjectId } from 'mongodb';
 import cors from 'cors';
+import Stripe from 'stripe';
+
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
 const client = new MongoClient(
   `mongodb+srv://${process.env.MONGO_DB_NAME}:${process.env.MONGO_DB_PASS}@cluster0.buouugs.mongodb.net/`
@@ -22,6 +25,7 @@ const database = connectedClient.db('PizzaHub-DataBase');
 const dbUsers = database.collection('user');
 const menus = database.collection('menu');
 const orders = database.collection('orders');
+const transactions = database.collection('transactions');
 
 const app = express();
 const port = 5000;
@@ -56,13 +60,12 @@ app.get('/menus', async (req, res) => {
     query.status = req.query.status;
   }
 
-    if (req.query.vendorEmail) {
+  if (req.query.vendorEmail) {
     query.vendorEmail = req.query.vendorEmail;
   }
   if (req.query.vendorId) {
     query.vendorId = req.query.vendorId;
   }
-  
 
   if (req.query.location) {
     query.location = { $regex: req.query.location, $options: 'i' };
@@ -81,7 +84,7 @@ app.get('/menus', async (req, res) => {
   res.send(result);
 });
 
-// FEATURED MENU API 
+// FEATURED MENU API
 app.get('/menus/featured', async (req, res) => {
   const query = {
     $or: [{ status: 'Active' }, { status: 'Approved' }],
@@ -261,8 +264,189 @@ app.patch('/users/:id/block', async (req, res) => {
   res.send(result);
 });
 
+// CREATE STRIPE CHECKOUT SESSION (Vendor Premium Plan - $20)
+app.post('/payments/create-checkout-session', async (req, res) => {
+  try {
+    const { userId, userEmail, userName, successUrl, cancelUrl } = req.body;
 
+    if (!userId && !userEmail) {
+      return res.status(400).send({ success: false, message: 'User ID or email is required.' });
+    }
 
+    const userFilter = ObjectId.isValid(userId)
+      ? { _id: new ObjectId(userId) }
+      : { email: userEmail };
+
+    const targetUser = await dbUsers.findOne(userFilter);
+    if (!targetUser) {
+      return res.status(404).send({ success: false, message: 'User not found.' });
+    }
+
+    if (targetUser.isBlocked) {
+      return res.status(403).send({ success: false, message: 'Blocked account cannot purchase subscription.' });
+    }
+
+    const clientOrigin = req.headers.origin || 'http://localhost:3000';
+    const resolvedSuccessUrl =
+      successUrl || `${clientOrigin}/dashboard/vendor/subscription?session_id={CHECKOUT_SESSION_ID}`;
+    const resolvedCancelUrl =
+      cancelUrl || `${clientOrigin}/dashboard/vendor/subscription?canceled=true`;
+
+    const session = await stripe.checkout.sessions.create({
+      mode: 'payment',
+      customer_email: targetUser.email || userEmail,
+      line_items: [
+        {
+          price_data: {
+            currency: 'usd',
+            product_data: {
+              name: 'PizzaHut Vendor Premium Plan',
+              description: 'Unlimited active items, Premium vendor badge, Featured menu placement',
+            },
+            unit_amount: 2000, // $20.00 in cents
+          },
+          quantity: 1,
+        },
+      ],
+      metadata: {
+        userId: targetUser._id.toString(),
+        userEmail: targetUser.email || userEmail || '',
+        userName: targetUser.name || userName || '',
+        plan: 'Premium',
+      },
+      success_url: resolvedSuccessUrl,
+      cancel_url: resolvedCancelUrl,
+    });
+
+    res.send({ success: true, url: session.url, sessionId: session.id });
+  } catch (err) {
+    console.error('Create checkout session error:', err);
+    res.status(500).send({ success: false, message: err.message || 'Failed to create checkout session.' });
+  }
+});
+
+// VERIFY STRIPE CHECKOUT & SAVE TRANSACTION
+app.post('/payments/checkout-verify', async (req, res) => {
+  try {
+    const { sessionId, currentUserId } = req.body;
+
+    if (!sessionId) {
+      return res.send({ success: false, message: 'Session ID is required' });
+    }
+
+    const {
+      status,
+      payment_status,
+      customer_email,
+      metadata,
+      payment_intent,
+      amount_total,
+    } = await stripe.checkout.sessions.retrieve(sessionId);
+
+    if (currentUserId && metadata?.userId && currentUserId !== metadata.userId) {
+      return res.status(403).send({
+        success: false,
+        message: 'Session does not belong to the currently logged in user',
+      });
+    }
+
+    if (status === 'complete' && payment_status === 'paid') {
+      const existingPayment = await transactions.findOne({ sessionId });
+      if (existingPayment) {
+        return res.send({ success: false, message: 'Payment already verified', payment: existingPayment });
+      }
+
+      const now = new Date().toISOString();
+      const payment = {
+        sessionId,
+        status,
+        payment_status,
+        customer_email: customer_email || metadata?.userEmail || '',
+        userId: metadata?.userId || '',
+        userName: metadata?.userName || '',
+        plan: metadata?.plan || 'Premium',
+        amount: typeof amount_total === 'number' ? amount_total / 100 : 20,
+        payment_date: now,
+        createdAt: now,
+        payment_intent,
+      };
+
+      const result = await transactions.insertOne(payment);
+
+      let updateResult = null;
+      if (metadata?.userId && ObjectId.isValid(metadata.userId)) {
+        updateResult = await dbUsers.updateOne(
+          { _id: new ObjectId(metadata.userId) },
+          {
+            $set: {
+              premium: true,
+              subscriptionPlan: 'Premium',
+              updatedAt: now,
+            },
+          }
+        );
+      }
+
+      return res.send({ success: true, result, updateResult, payment });
+    }
+
+    res.send({ success: false, message: 'Payment verification failed' });
+  } catch (err) {
+    console.error('Checkout verify error:', err);
+    res.status(500).send({ success: false, message: err.message || 'Payment verification error' });
+  }
+});
+
+// SWITCH TO FREE PLAN (Vendor)
+app.post('/subscriptions/free', async (req, res) => {
+  try {
+    const { userId, userEmail } = req.body;
+
+    if (!userId && !userEmail) {
+      return res.status(400).send({ success: false, message: 'User ID or email is required.' });
+    }
+
+    const userFilter = ObjectId.isValid(userId)
+      ? { _id: new ObjectId(userId) }
+      : { email: userEmail };
+
+    const targetUser = await dbUsers.findOne(userFilter);
+    if (!targetUser) {
+      return res.status(404).send({ success: false, message: 'User not found.' });
+    }
+
+    const updateResult = await dbUsers.updateOne(
+      { _id: targetUser._id },
+      {
+        $set: {
+          premium: false,
+          subscriptionPlan: 'Free',
+          updatedAt: new Date().toISOString(),
+        },
+      }
+    );
+
+    res.send({ success: true, updateResult });
+  } catch (err) {
+    console.error('Free plan update error:', err);
+    res.status(500).send({ success: false, message: 'Failed to switch to Free plan.' });
+  }
+});
+
+// GET ALL TRANSACTIONS (Admin & Overview)
+app.get('/transactions', async (req, res) => {
+  try {
+    const query = {};
+    if (req.query.userId) query.userId = req.query.userId;
+    if (req.query.customer_email) query.customer_email = req.query.customer_email;
+
+    const result = await transactions.find(query).sort({ payment_date: -1 }).toArray();
+    res.send(result);
+  } catch (err) {
+    console.error('Failed to fetch transactions:', err);
+    res.status(500).send({ error: 'Failed to fetch transactions.' });
+  }
+});
 
 // Start
 app.get('/', (req, res) => {
