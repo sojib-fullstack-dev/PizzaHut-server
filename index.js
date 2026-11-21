@@ -107,7 +107,14 @@ app.post('/orders', async (req, res) => {
   res.send(result);
 });
 
+//  get orders
 
+app.get('/orders', async (req, res) => {
+  
+  const cursor = orders.find({});
+  const result = await cursor.toArray();
+  res.send(result);
+});
 
 
   // Start 
