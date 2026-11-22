@@ -33,12 +33,11 @@ const port = 5000;
 app.use(cors());
 app.use(express.json());
 
-// JWT secret - .env theke ashe, na thakle dev fallback (local development er jonno)
-const ACCESS_TOKEN_SECRET =
-  process.env.ACCESS_TOKEN_SECRET || 'pizzahut-dev-access-token-secret';
+// JWT secret - .env er ACCESS_TOKEN_SECRET theke ashe (.env e set thakbe)
+const ACCESS_TOKEN_SECRET = process.env.ACCESS_TOKEN_SECRET;
 
-// VERIFY TOKEN middleware - Authorization: Bearer <token> header check kore
-// Token valid hole req.decoded e user info (email/userId/role) set hoy
+// VERIFY TOKEN middleware - Authorization: 
+
 function verifyToken(req, res, next) {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -54,8 +53,8 @@ function verifyToken(req, res, next) {
   }
 }
 
-// VERIFY ADMIN middleware - decoded email er user admin kina check kore
-// (verifyToken er pore boshay - age token valid, tarpor admin check)
+// VERIFY ADMIN middleware - 
+
 async function verifyAdmin(req, res, next) {
   const email = req.decoded?.email;
   const user = email ? await dbUsers.findOne({ email }) : null;
@@ -66,11 +65,11 @@ async function verifyAdmin(req, res, next) {
   next();
 }
 
-// JWT TOKEN API (public) - client ei endpoint theke token niye localStorage e save kore
+// JWT TOKEN API (public) -
 app.post('/jwt', async (req, res) => {
   const { email, userId, role } = req.body;
 
-  // Jodi email dewa hoy - DB theke user khuje niye role/id auto baray
+
   const user = email ? await dbUsers.findOne({ email }) : null;
 
   const payload = {
@@ -79,7 +78,7 @@ app.post('/jwt', async (req, res) => {
     role: role || user?.role || '',
   };
 
-  // Token sign - 7 din valid thakbe
+  // Token sign - 7 din 
   const token = jwt.sign(payload, ACCESS_TOKEN_SECRET, { expiresIn: '7d' });
   res.send({ token });
 });
