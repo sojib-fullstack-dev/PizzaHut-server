@@ -33,7 +33,7 @@ const port = 5000;
 app.use(cors());
 app.use(express.json());
 
-// JWT secret - .env er ACCESS_TOKEN_SECRET theke ashe (.env e set thakbe)
+// JWT secret - .env 
 const ACCESS_TOKEN_SECRET = process.env.ACCESS_TOKEN_SECRET;
 
 // VERIFY TOKEN middleware - Authorization: 
