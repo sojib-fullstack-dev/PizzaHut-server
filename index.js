@@ -3,6 +3,7 @@ import 'dotenv/config';
 import { MongoClient, ObjectId } from 'mongodb';
 import cors from 'cors';
 import Stripe from 'stripe';
+import jwt from 'jsonwebtoken';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
@@ -32,14 +33,65 @@ const port = 5000;
 app.use(cors());
 app.use(express.json());
 
+// JWT secret - .env theke ashe, na thakle dev fallback (local development er jonno)
+const ACCESS_TOKEN_SECRET =
+  process.env.ACCESS_TOKEN_SECRET || 'pizzahut-dev-access-token-secret';
+
+// VERIFY TOKEN middleware - Authorization: Bearer <token> header check kore
+// Token valid hole req.decoded e user info (email/userId/role) set hoy
+function verifyToken(req, res, next) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).send({ error: 'Unauthorized access.' });
+  }
+
+  const token = authHeader.split(' ')[1];
+  try {
+    req.decoded = jwt.verify(token, ACCESS_TOKEN_SECRET);
+    next();
+  } catch {
+    return res.status(401).send({ error: 'Invalid or expired token.' });
+  }
+}
+
+// VERIFY ADMIN middleware - decoded email er user admin kina check kore
+// (verifyToken er pore boshay - age token valid, tarpor admin check)
+async function verifyAdmin(req, res, next) {
+  const email = req.decoded?.email;
+  const user = email ? await dbUsers.findOne({ email }) : null;
+
+  if (!user || user.role !== 'admin') {
+    return res.status(403).send({ error: 'Forbidden access.' });
+  }
+  next();
+}
+
+// JWT TOKEN API (public) - client ei endpoint theke token niye localStorage e save kore
+app.post('/jwt', async (req, res) => {
+  const { email, userId, role } = req.body;
+
+  // Jodi email dewa hoy - DB theke user khuje niye role/id auto baray
+  const user = email ? await dbUsers.findOne({ email }) : null;
+
+  const payload = {
+    email: email || user?.email || '',
+    userId: userId || user?._id?.toString() || '',
+    role: role || user?.role || '',
+  };
+
+  // Token sign - 7 din valid thakbe
+  const token = jwt.sign(payload, ACCESS_TOKEN_SECRET, { expiresIn: '7d' });
+  res.send({ token });
+});
+
 // db user load
-app.get('/users', async (req, res) => {
+app.get('/users', verifyToken, async (req, res) => {
   const result = await dbUsers.find().toArray();
   res.send(result);
 });
 
 // MENU POST API
-app.post('/menus', async (req, res) => {
+app.post('/menus', verifyToken, async (req, res) => {
   const menuItems = req.body;
   menuItems.status = 'Pending';
 
@@ -103,7 +155,7 @@ app.get('/menus/:id', async (req, res) => {
 });
 
 // MENU UPDATE API
-app.patch('/menus/:id', async (req, res) => {
+app.patch('/menus/:id', verifyToken, async (req, res) => {
   if (!ObjectId.isValid(req.params.id)) {
     return res.status(400).send({ error: 'Invalid menu id.' });
   }
@@ -123,7 +175,7 @@ app.patch('/menus/:id', async (req, res) => {
 });
 
 // MENU DELETE API
-app.delete('/menus/:id', async (req, res) => {
+app.delete('/menus/:id', verifyToken, async (req, res) => {
   if (!ObjectId.isValid(req.params.id)) {
     return res.status(400).send({ error: 'Invalid menu id.' });
   }
@@ -133,7 +185,7 @@ app.delete('/menus/:id', async (req, res) => {
 });
 
 // orders related apis
-app.post('/orders', async (req, res) => {
+app.post('/orders', verifyToken, async (req, res) => {
   const order = req.body;
   order.status = 'Pending';
   order.createdAt = new Date().toISOString();
@@ -180,7 +232,7 @@ app.post('/orders', async (req, res) => {
 });
 
 // order status update (Pending -> Accepted / Rejected / Cancelled)
-app.patch('/orders/:id', async (req, res) => {
+app.patch('/orders/:id', verifyToken, async (req, res) => {
   if (!ObjectId.isValid(req.params.id)) {
     return res.status(400).send({ error: 'Invalid order id.' });
   }
@@ -225,7 +277,7 @@ app.patch('/orders/:id', async (req, res) => {
 });
 
 // get orders
-app.get('/orders', async (req, res) => {
+app.get('/orders', verifyToken, async (req, res) => {
   const query = {};
   if (req.query.customerEmail) query.customerEmail = req.query.customerEmail;
   if (req.query.customerId) query.customerId = req.query.customerId;
@@ -237,7 +289,7 @@ app.get('/orders', async (req, res) => {
 });
 
 // USER BLOCK / UNBLOCK API (Admin)
-app.patch('/users/:id/block', async (req, res) => {
+app.patch('/users/:id/block', verifyToken, verifyAdmin, async (req, res) => {
   if (!ObjectId.isValid(req.params.id)) {
     return res.status(400).send({ error: 'Invalid user id.' });
   }
@@ -265,7 +317,7 @@ app.patch('/users/:id/block', async (req, res) => {
 });
 
 // CREATE STRIPE CHECKOUT SESSION (Vendor Premium Plan - $20)
-app.post('/payments/create-checkout-session', async (req, res) => {
+app.post('/payments/create-checkout-session', verifyToken, async (req, res) => {
   try {
     const { userId, userEmail, userName, successUrl, cancelUrl } = req.body;
 
@@ -326,7 +378,7 @@ app.post('/payments/create-checkout-session', async (req, res) => {
 });
 
 // VERIFY STRIPE CHECKOUT & SAVE TRANSACTION
-app.post('/payments/checkout-verify', async (req, res) => {
+app.post('/payments/checkout-verify', verifyToken, async (req, res) => {
   try {
     const { sessionId, currentUserId } = req.body;
 
@@ -398,7 +450,7 @@ app.post('/payments/checkout-verify', async (req, res) => {
 });
 
 // SWITCH TO FREE PLAN (Vendor)
-app.post('/subscriptions/free', async (req, res) => {
+app.post('/subscriptions/free', verifyToken, async (req, res) => {
   try {
     const { userId, userEmail } = req.body;
 
@@ -434,7 +486,7 @@ app.post('/subscriptions/free', async (req, res) => {
 });
 
 // GET ALL TRANSACTIONS (Admin & Overview)
-app.get('/transactions', async (req, res) => {
+app.get('/transactions', verifyToken, verifyAdmin, async (req, res) => {
   try {
     const query = {};
     if (req.query.userId) query.userId = req.query.userId;
